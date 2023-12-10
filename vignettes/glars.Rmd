@@ -1,0 +1,189 @@
+---
+title: "SA23204165"
+author: "Jin fulong"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SA23204165}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+### Introduction
+
+We know that Least angle regression is a method which apply greedy method to achieve model selection proposed by Efron, and it correspond to a famous $l1$-norm penalty selection model lasso. This package achieves a method of group selection and forward regression for LARS which proposed by Ming and offer a selection criterion implemented by R and RcppEigen version.
+
+### Group Linear Regression
+
+Consider the general regression problem with $\mathrm{J}$ group factors
+$$
+Y=\sum_{j=1}^J X_j \beta_j+\varepsilon
+$$
+
+- $Y$ is an $n \times 1$ vector, $\varepsilon \sim N_n\left(0, \sigma^2 I\right)$
+- $X_j$ is an $n \times p_j$ matrix corresponding to the $j$ th group
+- Inter-group features linear independent $X_j^{\prime} X_j=I_{p_j}, j=1, \ldots, J$
+
+It's clearly that when $p_1=\ldots=p_J=1$, the group regression reduces to ordinary one.
+
+
+### Algorithm
+
+- Start from $\beta^{[0]}=0, k=1$ and $r^{[0]}=Y$.
+
+- Compute the current 'most correlated set'
+$$
+\mathcal{A}_1=\arg \max _j\left\|X_j^{\prime} r^{[k-1]}\right\|^2 / p_j .
+$$
+- Compute the current direction $\gamma$ which is a $p=\Sigma p_j$ dimensional vector with $\gamma_{\mathcal{A}_k^{\mathrm{c}}}=0$ and
+$$
+\gamma_{\mathcal{A}_k}=\left(X_{\mathcal{A}_k}^{\prime} X_{\mathcal{A}_k}\right)^{-} X_{\mathcal{A}_k}^{\prime}r^{[k-1]},
+$$
+where $X_{\mathcal{A}_k}$ denotes the matrix comprised of the columns of $X$ corresponding to $\mathcal{A}_k$.
+
+- For every $j \notin \mathcal{A}_k$, compute how far the group LARS algorithm will progress in direction $\gamma$ before $X_j$ enters the most correlated set. This can be measured by an $\alpha_j \in[0,1]$ such that
+$$
+\left\|X_j^{\prime}\left(r^{[k-1]}-\alpha_j X \gamma\right)\right\|^2 / p_j=\left\|X_{j^{\prime}}^{\prime}\left(r^{[k-1]}-\alpha_j X \gamma\right)\right\|^2 / p_{j^{\prime}}
+$$
+where $j^{\prime}$ is arbitrarily chosen from $\mathcal{A}_k$.
+
+- If $\mathcal{A}_k \neq\{1, \ldots, J\}$, let $\alpha=\min _{j \notin \mathcal{A}_k}\left(\alpha_j\right) \equiv \alpha_{j^*}$ and update $\mathcal{A}_{k+1}=\mathcal{A} \cup\left\{j^*\right\}$; otherwise, set $\alpha=1$.
+
+- Update $\beta^{[k]}=\beta^{[k-1]}+\alpha \gamma, r^{[k]}=Y-X \beta^{[k]}$ and $k=k+1$. Go back to step 3 until $\alpha=1$.
+
+
+### Model criterion (Group version Mallow's $C_p$)
+
+It is well known that in Gaussian regression problems, model selection can
+be evaluated by
+$$
+\begin{gathered}
+C_p(\hat{\mu})=\frac{\|Y-\hat{\mu}\|^2}{\sigma^2}-n+2 \mathrm{df}_{\mu, \sigma^2}, \\
+\operatorname{df}_{\mu, \sigma^2}=\sum_{i=1}^n \operatorname{cov}\left(\hat{\mu}_i, Y_i\right) / \sigma^2.
+\end{gathered}
+$$
+For Group model selection, the paper give an unbiased estimate of df which is
+$$
+\widetilde{\operatorname{df}}\left(\hat{\mu}_k \equiv X \beta^{[k]}\right)=\sum_j I\left(\left\|\beta_j^{[k]}\right\|>0\right)+\sum_j\left(\frac{\sum_{l<k}\left\|\beta_j^{[l+1]}-\beta_j^{[l]}\right\|}{\sum_{l<J}\left\|\beta_j^{[l+1]}-\beta_j^{[l]}\right\|}\right)\left(p_j-1\right)
+$$
+It's noticeable that $p_j = 1$, this estimate corresponds to degenerate one. 
+
+
+
+### Comparing with `lars` package for degenerate case 
+```{r, warning=FALSE}
+knitr::opts_chunk$set(fig.width=7, fig.height=4)
+library(SA23204165)
+library(MASS)
+rho = 0.2
+X <- mvrnorm(200,mu = rep(0,10), Sigma = diag(10) + rho*(1-diag(10)))
+beta <- c(0.2,0.4,0.5,0.6,0.6,0.6,0.2,0.3,0.5,0.7)
+g.index <- 1:length(beta)   #ordinary form
+y <- X%*%beta + rnorm(200)
+fit1 <- glars(X,y,g.index)
+betas1 = fit1$betas
+rownames(betas1) = paste('betas',1:length(beta))
+colnames(betas1) = paste('path',unique(g.index))
+betas1
+```
+
+
+
+
+```{r, warning=FALSE}
+library(lars)  #lars package
+fit2 <- lars(X,y,type = 'lar',intercept = F,normalize = T,use.Gram = F)
+betas2 = fit2$beta
+betas2 = betas2[-1,] #remove intercept
+rownames(betas2) = paste('betas',1:length(beta))
+colnames(betas2) = paste('path',unique(g.index))
+betas2
+```
+
+Use $C_p$ to select model for ours and `lars` package, and compare them $\beta_0$ and $\beta_{LS}$
+```{r}
+cp1 = criterion(fit1$X,fit1$y,sd(fit1$y),fit1$betas, g.index, c(unname(table(g.index))))
+cp2 = fit2$Cp
+beta1.best = betas1[,cp1 == min(cp1)]
+beta2.best = betas2[,unname(cp2[-1] == min(cp2[-1]))]
+beta.ls = lm(y~scale(X)-1)$coefficient
+beta.res = rbind(beta,beta.ls,beta1.best,beta2.best)
+row.names(beta.res) = c('True','LS','ours','lars package')
+colnames(beta.res) = colnames(beta1.best)
+beta.res
+```
+
+Our implement selected by $C_p$ criterion is fully equal to least square method.
+
+
+- Almost there is some difference between estimation, the following path result showing our method is compatible with ordinary least angle regression.
+
+```{r}
+path1 = fit1$path
+path2 = unlist(fit2$actions)
+path.res <- rbind(path1,path2)
+colnames(path.res) = paste('path',unique(g.index))
+rownames(path.res) = c('ours','lars package')
+path.res
+```
+
+
+
+### Path ploting
+
+In this package, We also provide a path plot for forward group selection, only one line code
+```{r}
+path(fit1)
+```
+
+
+```{r}
+plot(fit2)
+```
+
+
+### $C_p$ function with RcppEigen
+
+To boost computing efficiency, we rewrite the `criterion` function with RcppEigen. Let's see performance discrepancy between them
+
+```{r}
+library(microbenchmark)
+comp <- microbenchmark(Cp.r =criterion(fit1$X, fit1$y, sd(fit1$y), fit1$betas, g.index, c(unname(table(g.index)))) , Cp.c = criterionC(fit1$X, fit1$y, sd(fit1$y), fit1$betas, g.index, unique(g.index),c(unname(table(g.index))))) 
+comp
+```
+
+```{r}
+cp.r = criterion(fit1$X, fit1$y, sd(fit1$y), fit1$betas, g.index, c(unname(table(g.index))))
+cp.c = criterionC(fit1$X, fit1$y, sd(fit1$y), fit1$betas, g.index, unique(g.index),c(unname(table(g.index))))
+comp.res = rbind(cp.r,cp.c)
+colnames(comp.res) = paste('path',unique(g.index))
+comp.res
+```
+
+
+### Group Selection
+
+- The idea of Group Selection is make coefficients in one group zero or nonzero at the same time when proceeding on path. Let's do some simulation on this condition. Consider that 
+$$
+\beta = (\underbrace{0,0,0}_{group1},\underbrace{0.6,0,4,0.2}_{group2},\underbrace{0.2,0.3}_{group3},\underbrace{0}_{group4},\underbrace{0}_{group5})^{\top}
+$$
+
+```{r}
+
+rho = 0.2
+X <- mvrnorm(200,mu = rep(0,10), Sigma = diag(10) + rho*(1-diag(10)))
+beta <- c(0,0,0,0.6,0.4,0.2,0.2,0.3,0,0)
+g.index <- c(1,1,1,2,2,2,3,3,4,5)
+y <- X%*%beta + rnorm(200)
+fit <- glars(X,y,g.index)
+path(fit)
+```
+
+
+```{r}
+cp = criterion(fit$X, fit$y, sd(fit$y), fit$betas, g.index, c(unname(table(g.index))))
+fit$betas[,which(cp == min(cp))]
+```
+Group 1,4,5 are removed from the model by group $C_p$
+
+

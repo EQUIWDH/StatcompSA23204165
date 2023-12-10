@@ -1,0 +1,15 @@
+Package: SA23204165
+Type: Package
+Title: Group Least Angle Regression for Model Selection and Estimation in Regression
+Version: 1.0
+Date: 2023-12-09
+Author: Jin fulong
+Maintainer: Jin fulong <jinfulong@mail.ustc.edu.cn>
+Description: This is a final project of statistical computation class of SA23204165 which achieves group least angle regression, path plotting and Cp criterion.
+License: GPL (>= 2)
+Imports: Rcpp, RcppEigen, stats, MASS, pracma, graphics ,DAAG, VGAM, boot, bootstrap, coda, ggplot2, ggpubr, glmnet, lars, microbenchmark, naniar, survival, survminer
+Suggests: knitr, rmarkdown
+LinkingTo: Rcpp, RcppEigen
+RoxygenNote: 7.2.3
+Encoding: UTF-8
+VignetteBuilder: knitr
